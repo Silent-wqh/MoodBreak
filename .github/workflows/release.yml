@@ -1,0 +1,103 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate tag format
+        run: |
+          if [[ ! "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid tag format: ${GITHUB_REF_NAME}"
+            exit 1
+          fi
+
+      - name: Ensure tagged commit is on main
+        run: |
+          git fetch origin main --depth=1
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" "origin/main"; then
+            echo "Tag ${GITHUB_REF_NAME} is not on main. Release blocked."
+            exit 1
+          fi
+
+      - name: Build release binary
+        run: swift build -c release
+
+      - name: Package app bundle
+        run: |
+          set -euo pipefail
+          APP_NAME="MoodBreak"
+          BUNDLE_ID="com.silentwqh.moodbreak"
+          VERSION_TAG="${GITHUB_REF_NAME}"
+          DIST_DIR="dist"
+          APP_DIR="${DIST_DIR}/${APP_NAME}.app"
+          ZIP_PATH="${DIST_DIR}/${APP_NAME}-${VERSION_TAG}-macOS.zip"
+
+          BIN_PATH="$(find .build -type f -path "*/release/${APP_NAME}" | head -n 1)"
+          RESOURCE_BUNDLE="$(find .build -type d -path "*/release/${APP_NAME}_${APP_NAME}.bundle" | head -n 1)"
+
+          if [[ -z "${BIN_PATH}" || -z "${RESOURCE_BUNDLE}" ]]; then
+            echo "Missing build outputs"
+            exit 1
+          fi
+
+          rm -rf "${APP_DIR}" "${ZIP_PATH}"
+          mkdir -p "${APP_DIR}/Contents/MacOS" "${APP_DIR}/Contents/Resources"
+          cp "${BIN_PATH}" "${APP_DIR}/Contents/MacOS/${APP_NAME}"
+          chmod +x "${APP_DIR}/Contents/MacOS/${APP_NAME}"
+          cp -R "${RESOURCE_BUNDLE}" "${APP_DIR}/Contents/Resources/${APP_NAME}_${APP_NAME}.bundle"
+
+          cat > "${APP_DIR}/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleDevelopmentRegion</key>
+            <string>en</string>
+            <key>CFBundleExecutable</key>
+            <string>${APP_NAME}</string>
+            <key>CFBundleIdentifier</key>
+            <string>${BUNDLE_ID}</string>
+            <key>CFBundleInfoDictionaryVersion</key>
+            <string>6.0</string>
+            <key>CFBundleName</key>
+            <string>${APP_NAME}</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>CFBundleShortVersionString</key>
+            <string>${VERSION_TAG#v}</string>
+            <key>CFBundleVersion</key>
+            <string>${VERSION_TAG#v}</string>
+            <key>LSMinimumSystemVersion</key>
+            <string>13.0</string>
+            <key>LSUIElement</key>
+            <true/>
+          </dict>
+          </plist>
+          PLIST
+
+          codesign --force --deep --sign - --identifier "${BUNDLE_ID}" "${APP_DIR}"
+          codesign --verify --deep --strict --verbose=2 "${APP_DIR}"
+
+          mkdir -p "${DIST_DIR}"
+          ditto -c -k --keepParent "${APP_DIR}" "${ZIP_PATH}"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" "dist/MoodBreak-${GITHUB_REF_NAME}-macOS.zip" \
+            --generate-notes

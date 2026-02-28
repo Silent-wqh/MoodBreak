@@ -89,3 +89,18 @@ swift test
 - idle 状态下到点延后到恢复 active
 - dismiss 视为 snooze 5 分钟
 - Mute Today 当天抑制 + 次日自动恢复
+
+
+## 打包与发布
+
+- 本地打包（不发布版本）：
+  ```bash
+  ./scripts/release.sh
+  ```
+- 本地打包并安装到 `/Applications/MoodBreak.app`：
+  ```bash
+  ./scripts/release.sh --install
+  ```
+- 版本发布：通过 GitHub Actions 完成。推送 `vX.Y.Z` tag 后自动构建并创建 GitHub Release。
+- 安全保护：Release workflow 会校验该 tag 对应提交必须已在 `main` 分支上，否则阻止发布。
+
