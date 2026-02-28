@@ -1,36 +1,50 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION_TAG="${1:-v0.0.1}"
+usage() {
+  cat <<EOH
+Usage:
+  ./scripts/release.sh [--install]
+
+Examples:
+  ./scripts/release.sh
+  ./scripts/release.sh --install
+
+Behavior:
+  - Local only: build + package .app into dist (no git tag, no GitHub release).
+  - --install: install built app to /Applications/MoodBreak.app.
+EOH
+}
+
+DO_INSTALL=false
 APP_NAME="MoodBreak"
 BUNDLE_ID="com.silentwqh.moodbreak"
+LOCAL_VERSION="0.0.0"
 DIST_DIR="dist"
 APP_DIR="${DIST_DIR}/${APP_NAME}.app"
-ZIP_NAME="${APP_NAME}-${VERSION_TAG}-macOS.zip"
+ZIP_NAME="${APP_NAME}-local-macOS.zip"
 ZIP_PATH="${DIST_DIR}/${ZIP_NAME}"
 
-if [[ ! "${VERSION_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  echo "Error: version tag must look like v0.0.1"
-  exit 1
-fi
-
-if ! command -v gh >/dev/null 2>&1; then
-  echo "Error: gh CLI is required."
-  exit 1
-fi
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --install)
+      DO_INSTALL=true
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Error: unknown argument '$1'"
+      usage
+      exit 1
+      ;;
+  esac
+  shift
+done
 
 if ! command -v swift >/dev/null 2>&1; then
   echo "Error: swift is required."
-  exit 1
-fi
-
-if ! git diff --quiet || ! git diff --cached --quiet; then
-  echo "Error: working tree is not clean. Commit or stash first."
-  exit 1
-fi
-
-if git rev-parse "${VERSION_TAG}" >/dev/null 2>&1; then
-  echo "Error: tag ${VERSION_TAG} already exists."
   exit 1
 fi
 
@@ -55,12 +69,9 @@ mkdir -p "${APP_DIR}/Contents/MacOS" "${APP_DIR}/Contents/Resources"
 
 cp "${BIN_PATH}" "${APP_DIR}/Contents/MacOS/${APP_NAME}"
 chmod +x "${APP_DIR}/Contents/MacOS/${APP_NAME}"
+cp -R "${RESOURCE_BUNDLE}" "${APP_DIR}/Contents/Resources/${APP_NAME}_${APP_NAME}.bundle"
 
-# Bundle.module in SwiftPM executable resolves to:
-# Bundle.main.bundleURL/<target>_<module>.bundle
-cp -R "${RESOURCE_BUNDLE}" "${APP_DIR}/${APP_NAME}_${APP_NAME}.bundle"
-
-cat > "${APP_DIR}/Contents/Info.plist" <<EOF
+cat > "${APP_DIR}/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -78,34 +89,33 @@ cat > "${APP_DIR}/Contents/Info.plist" <<EOF
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>${VERSION_TAG#v}</string>
+  <string>${LOCAL_VERSION}</string>
   <key>CFBundleVersion</key>
-  <string>${VERSION_TAG#v}</string>
+  <string>${LOCAL_VERSION}</string>
   <key>LSMinimumSystemVersion</key>
   <string>13.0</string>
   <key>LSUIElement</key>
   <true/>
 </dict>
 </plist>
-EOF
+PLIST
+
+echo "==> Codesigning app bundle"
+codesign --force --deep --sign - --identifier "${BUNDLE_ID}" "${APP_DIR}"
+codesign --verify --deep --strict --verbose=2 "${APP_DIR}"
 
 echo "==> Creating zip artifact ${ZIP_PATH}"
 mkdir -p "${DIST_DIR}"
 ditto -c -k --keepParent "${APP_DIR}" "${ZIP_PATH}"
 
-echo "==> Creating git tag ${VERSION_TAG}"
-git tag -a "${VERSION_TAG}" -m "Release ${VERSION_TAG}"
+if ${DO_INSTALL}; then
+  echo "==> Installing app to /Applications/${APP_NAME}.app"
+  rm -rf "/Applications/${APP_NAME}.app"
+  ditto "${APP_DIR}" "/Applications/${APP_NAME}.app"
+fi
 
-CURRENT_BRANCH="$(git branch --show-current)"
-echo "==> Pushing branch ${CURRENT_BRANCH} and tag ${VERSION_TAG}"
-git push origin "${CURRENT_BRANCH}"
-git push origin "${VERSION_TAG}"
-
-echo "==> Creating GitHub release"
-gh release create "${VERSION_TAG}" "${ZIP_PATH}" \
-  --title "${VERSION_TAG}" \
-  --notes "Release ${VERSION_TAG}\n\n- Packaged macOS .app bundle\n- Includes status bar icon assets and resource bundle"
-
-echo "==> Done"
-echo "Release URL:"
-gh release view "${VERSION_TAG}" --json url -q .url
+echo "==> Done (local package only)"
+echo "Artifact: ${ZIP_PATH}"
+if ${DO_INSTALL}; then
+  echo "Installed: /Applications/${APP_NAME}.app"
+fi

@@ -1,0 +1,2 @@
+- Develop in branch `codex/dev`, and branch `main` forbidden to push directly
+- Make PR when you want to merge `codex/dev` to `main`
