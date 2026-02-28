@@ -56,9 +56,9 @@ mkdir -p "${APP_DIR}/Contents/MacOS" "${APP_DIR}/Contents/Resources"
 cp "${BIN_PATH}" "${APP_DIR}/Contents/MacOS/${APP_NAME}"
 chmod +x "${APP_DIR}/Contents/MacOS/${APP_NAME}"
 
-# Bundle.module in SwiftPM executable resolves to:
-# Bundle.main.bundleURL/<target>_<module>.bundle
-cp -R "${RESOURCE_BUNDLE}" "${APP_DIR}/${APP_NAME}_${APP_NAME}.bundle"
+# Keep SwiftPM resource bundle under Contents/Resources so app bundle
+# structure remains valid for code signing.
+cp -R "${RESOURCE_BUNDLE}" "${APP_DIR}/Contents/Resources/${APP_NAME}_${APP_NAME}.bundle"
 
 cat > "${APP_DIR}/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -88,6 +88,10 @@ cat > "${APP_DIR}/Contents/Info.plist" <<EOF
 </dict>
 </plist>
 EOF
+
+echo "==> Codesigning app bundle"
+codesign --force --deep --sign - --identifier "${BUNDLE_ID}" "${APP_DIR}"
+codesign --verify --deep --strict --verbose=2 "${APP_DIR}"
 
 echo "==> Creating zip artifact ${ZIP_PATH}"
 mkdir -p "${DIST_DIR}"
