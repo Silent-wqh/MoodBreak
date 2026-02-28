@@ -3,10 +3,27 @@ import Foundation
 
 enum IconLoader {
     static func loadStatusIcon() -> NSImage? {
+        if let bundleURL = Bundle.module.url(forResource: "cat", withExtension: "pdf"),
+           let image = NSImage(contentsOf: bundleURL) {
+            image.isTemplate = true
+            image.size = NSSize(width: 18, height: 18)
+            DebugLogger.log("Icon", "Loaded cat.pdf from bundle resources")
+            return image
+        }
+
+        if let bundleURL = Bundle.module.url(forResource: "cat", withExtension: "svg"),
+           let image = NSImage(contentsOf: bundleURL) {
+            image.isTemplate = true
+            image.size = NSSize(width: 18, height: 18)
+            DebugLogger.log("Icon", "Loaded cat.svg from bundle resources")
+            return image
+        }
+
         for url in candidateURLs(fileName: "cat", ext: "pdf") {
             if let image = NSImage(contentsOf: url) {
                 image.isTemplate = true
                 image.size = NSSize(width: 18, height: 18)
+                DebugLogger.log("Icon", "Loaded cat.pdf from \(url.path)")
                 return image
             }
         }
@@ -15,10 +32,12 @@ enum IconLoader {
             if let image = NSImage(contentsOf: url) {
                 image.isTemplate = true
                 image.size = NSSize(width: 18, height: 18)
+                DebugLogger.log("Icon", "Loaded cat.svg from \(url.path)")
                 return image
             }
         }
 
+        DebugLogger.log("Icon", "Failed to load icon asset, fallback to MB")
         return nil
     }
 

@@ -19,7 +19,7 @@
    ```bash
    swift run
    ```
-3. 应用会出现在 menu bar（状态栏）中，图标优先读取仓库根目录 `cat.pdf`，失败时回退 `cat.svg`，并按模板图标显示。
+3. 应用会出现在 menu bar（状态栏）中，图标优先读取资源目录 `Sources/MoodBreak/Resources/Icons/cat.pdf`，失败时回退 `cat.svg`，并按模板图标显示。
 
 ## Debug 日志
 

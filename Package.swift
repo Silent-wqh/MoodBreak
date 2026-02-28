@@ -10,7 +10,10 @@ let package = Package(
     ],
     targets: [
         .executableTarget(
-            name: "MoodBreak"
+            name: "MoodBreak",
+            resources: [
+                .process("Resources")
+            ]
         ),
         .testTarget(
             name: "MoodBreakTests",
