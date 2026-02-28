@@ -103,4 +103,4 @@ swift test
   ```
 - 版本发布：通过 GitHub Actions 完成。推送 `vX.Y.Z` tag 后自动构建并创建 GitHub Release。
 - 安全保护：Release workflow 会校验该 tag 对应提交必须已在 `main` 分支上，否则阻止发布。
-
+- `CI` workflow 会在 `main` 的 push/PR 上自动执行 `swift build` 与 `swift test`。
