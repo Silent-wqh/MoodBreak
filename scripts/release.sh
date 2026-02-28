@@ -1,21 +1,68 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION_TAG="${1:-v0.0.1}"
+usage() {
+  cat <<EOF
+Usage:
+  ./scripts/release.sh <version-tag> [--publish] [--install]
+
+Examples:
+  ./scripts/release.sh v0.0.3
+  ./scripts/release.sh v0.0.3 --install
+  ./scripts/release.sh v0.0.3 --publish
+  ./scripts/release.sh v0.0.3 --publish --install
+
+Behavior:
+  - Default: local build + package only (no git push, no GitHub release).
+  - --publish: create tag, push tag, create GitHub release with generated notes.
+  - --install: install built app to /Applications/MoodBreak.app.
+EOF
+}
+
+VERSION_TAG=""
+DO_PUBLISH=false
+DO_INSTALL=false
 APP_NAME="MoodBreak"
 BUNDLE_ID="com.silentwqh.moodbreak"
 DIST_DIR="dist"
 APP_DIR="${DIST_DIR}/${APP_NAME}.app"
-ZIP_NAME="${APP_NAME}-${VERSION_TAG}-macOS.zip"
-ZIP_PATH="${DIST_DIR}/${ZIP_NAME}"
 
-if [[ ! "${VERSION_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  echo "Error: version tag must look like v0.0.1"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --publish)
+      DO_PUBLISH=true
+      ;;
+    --install)
+      DO_INSTALL=true
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    v*)
+      if [[ -n "${VERSION_TAG}" ]]; then
+        echo "Error: version tag provided more than once."
+        exit 1
+      fi
+      VERSION_TAG="$1"
+      ;;
+    *)
+      echo "Error: unknown argument '$1'"
+      usage
+      exit 1
+      ;;
+  esac
+  shift
+done
+
+if [[ -z "${VERSION_TAG}" ]]; then
+  echo "Error: version tag is required (example: v0.0.3)."
+  usage
   exit 1
 fi
 
-if ! command -v gh >/dev/null 2>&1; then
-  echo "Error: gh CLI is required."
+if [[ ! "${VERSION_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "Error: version tag must look like v0.0.1"
   exit 1
 fi
 
@@ -24,14 +71,27 @@ if ! command -v swift >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! git diff --quiet || ! git diff --cached --quiet; then
-  echo "Error: working tree is not clean. Commit or stash first."
-  exit 1
-fi
+ZIP_NAME="${APP_NAME}-${VERSION_TAG}-macOS.zip"
+ZIP_PATH="${DIST_DIR}/${ZIP_NAME}"
 
-if git rev-parse "${VERSION_TAG}" >/dev/null 2>&1; then
-  echo "Error: tag ${VERSION_TAG} already exists."
-  exit 1
+PREVIOUS_TAG=""
+if ${DO_PUBLISH}; then
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "Error: gh CLI is required when using --publish."
+    exit 1
+  fi
+
+  if ! git diff --quiet || ! git diff --cached --quiet; then
+    echo "Error: working tree is not clean. Commit or stash first."
+    exit 1
+  fi
+
+  if git rev-parse "${VERSION_TAG}" >/dev/null 2>&1; then
+    echo "Error: tag ${VERSION_TAG} already exists."
+    exit 1
+  fi
+
+  PREVIOUS_TAG="$(git tag --sort=-version:refname | head -n 1 || true)"
 fi
 
 echo "==> Building release binary"
@@ -97,18 +157,35 @@ echo "==> Creating zip artifact ${ZIP_PATH}"
 mkdir -p "${DIST_DIR}"
 ditto -c -k --keepParent "${APP_DIR}" "${ZIP_PATH}"
 
+if ${DO_INSTALL}; then
+  echo "==> Installing app to /Applications/${APP_NAME}.app"
+  rm -rf "/Applications/${APP_NAME}.app"
+  ditto "${APP_DIR}" "/Applications/${APP_NAME}.app"
+fi
+
+if ! ${DO_PUBLISH}; then
+  echo "==> Done (local package only)"
+  echo "Artifact: ${ZIP_PATH}"
+  if ${DO_INSTALL}; then
+    echo "Installed: /Applications/${APP_NAME}.app"
+  fi
+  exit 0
+fi
+
 echo "==> Creating git tag ${VERSION_TAG}"
 git tag -a "${VERSION_TAG}" -m "Release ${VERSION_TAG}"
 
-CURRENT_BRANCH="$(git branch --show-current)"
-echo "==> Pushing branch ${CURRENT_BRANCH} and tag ${VERSION_TAG}"
-git push origin "${CURRENT_BRANCH}"
+echo "==> Pushing tag ${VERSION_TAG}"
 git push origin "${VERSION_TAG}"
 
 echo "==> Creating GitHub release"
-gh release create "${VERSION_TAG}" "${ZIP_PATH}" \
-  --title "${VERSION_TAG}" \
-  --notes "Release ${VERSION_TAG}\n\n- Packaged macOS .app bundle\n- Includes status bar icon assets and resource bundle"
+if [[ -n "${PREVIOUS_TAG}" ]]; then
+  gh release create "${VERSION_TAG}" "${ZIP_PATH}" \
+    --generate-notes \
+    --notes-start-tag "${PREVIOUS_TAG}"
+else
+  gh release create "${VERSION_TAG}" "${ZIP_PATH}" --generate-notes
+fi
 
 echo "==> Done"
 echo "Release URL:"
